@@ -179,7 +179,7 @@ def main(args):
                     print(f"🔥 신기록 달성! 모델 저장 완료.")
 
         except RuntimeError as e:
-            if 'out of memory' in str(e) or 'cuDNN' in str(e):
+            if 'out of memory' in str(e):
                 print(f"⚠️ 런타임 에러 발생: {e}. 캐시 정리 후 다음 에폭으로 넘어갑니다.")
                 gc.collect()
                 torch.cuda.empty_cache()
