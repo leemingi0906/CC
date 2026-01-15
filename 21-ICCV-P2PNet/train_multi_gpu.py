@@ -80,7 +80,8 @@ def get_args_parser():
 
 def main(args):
     set_seed(args.seed)
-    os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
+    if args.gpu_id:
+        os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
 
     if not os.path.exists(args.data_root):
         print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
