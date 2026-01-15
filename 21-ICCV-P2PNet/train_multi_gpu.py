@@ -80,8 +80,8 @@ def get_args_parser():
 
 def main(args):
     set_seed(args.seed)
-    if args.gpu_id:
-        os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
+    #if args.gpu_id:
+    #    os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
 
     if not os.path.exists(args.data_root):
         print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
@@ -99,7 +99,7 @@ def main(args):
     for d in [args.output_dir, args.checkpoints_dir]:
         if not os.path.exists(d): os.makedirs(d)
 
-    device = torch.device('cuda')
+    device = torch.device(f'cuda:{args.gpu_id}')
     model, criterion = build_model(args, training=True)
     model.to(device)
     criterion.to(device)
