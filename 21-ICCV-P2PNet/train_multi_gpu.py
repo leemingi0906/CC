@@ -84,8 +84,8 @@ def main(args):
         print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
         return
 
-    gc.collect()
-    torch.cuda.empty_cache()
+    # gc.collect()
+    # torch.cuda.empty_cache()
 
     suffix = f"npoint_a{str(args.alpha).replace('.', '')}" if args.use_npoint else "baseline"
     if not args.output_dir: args.output_dir = f'./logs_{suffix}'
