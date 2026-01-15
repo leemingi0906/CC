@@ -105,7 +105,8 @@ def _vgg(arch, cfg, batch_norm, pretrained, progress, sync=False, **kwargs):
     if pretrained:
         state_dict = load_state_dict_from_url(
             model_urls[arch],
-            progress=progress
+            progress=progress,
+            map_location='cpu'
         )
         #state_dict = torch.load(model_paths[arch])
         model.load_state_dict(state_dict)
