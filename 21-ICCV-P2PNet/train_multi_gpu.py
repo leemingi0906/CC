@@ -91,9 +91,10 @@ def main(args):
     # torch.cuda.empty_cache()
 
     suffix = f"npoint_a{str(args.alpha).replace('.', '')}" if args.use_npoint else "baseline"
-    if not args.output_dir: args.output_dir = f'./logs_{suffix}'
-    if not args.checkpoints_dir: args.checkpoints_dir = f'./ckpt_{suffix}'
-    if not args.tensorboard_dir: args.tensorboard_dir = f'./runs_{suffix}'
+    os.makedirs("./my_exp", exist_ok=True)
+    if not args.output_dir: args.output_dir = f'./my_exp/logs_{suffix}'
+    if not args.checkpoints_dir: args.checkpoints_dir = f'./my_exp/ckpt_{suffix}'
+    if not args.tensorboard_dir: args.tensorboard_dir = f'./my_exp/runs_{suffix}'
 
     for d in [args.output_dir, args.checkpoints_dir]:
         if not os.path.exists(d): os.makedirs(d)
