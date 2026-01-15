@@ -9,9 +9,10 @@
   conda activate p2pnet
   pip install -r 21-ICCV-P2PNet/requirements.txt
 
-  mkdir -p p2pnet/pretrained
+  cd 21-ICCV-P2PNet
+  mkdir -p pretrained
   wget https://download.pytorch.org/models/vgg16_bn-6c64b313.pth \
-       -O p2pnet/pretrained/vgg16_bn-6c64b313.pth
+       -O pretrained/vgg16_bn-6c64b313.pth
   ```
 
 - 훈련
