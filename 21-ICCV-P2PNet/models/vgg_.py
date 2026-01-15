@@ -157,7 +157,8 @@ def vgg16_bn(pretrained=False, progress=True, sync=False, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg('vgg16_bn', 'D', True, pretrained, progress, sync=sync, **kwargs)
+    # return _vgg('vgg16_bn', 'D', True, pretrained, progress, sync=sync, **kwargs)
+    return _vgg('vgg16_bn', 'D', True, pretrained, progress, **kwargs)
 
 
 def vgg19(pretrained=False, progress=True, **kwargs):
