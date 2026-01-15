@@ -74,6 +74,7 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=2, type=int)
     # [수정] 평가 주기를 기본 5로 설정하여 훈련 효율성을 높임
     parser.add_argument('--eval_freq', default=5, type=int)
+    parser.add_argument('--gpu_id', default=0, type=int, help='the gpu used for training')
 
     return parser
 
