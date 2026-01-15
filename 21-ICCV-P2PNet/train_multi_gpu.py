@@ -79,7 +79,8 @@ def get_args_parser():
 
 def main(args):
     set_seed(args.seed)
-    
+    os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
+
     if not os.path.exists(args.data_root):
         print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
         return
@@ -98,10 +99,10 @@ def main(args):
     device = torch.device('cuda')
     model, criterion = build_model(args, training=True)
     model.to(device)
-    
-    model_without_ddp = model
     criterion.to(device)
 
+    model_without_ddp = model
+    
     optimizer = torch.optim.Adam([
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" in n and p.requires_grad], "lr": args.lr_backbone},
@@ -139,9 +140,6 @@ def main(args):
     
     for epoch in range(args.epochs):
         try:
-            gc.collect()
-            torch.cuda.empty_cache()
-
             t1 = time.time()
             stat = train_one_epoch(model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
             t2 = time.time()
