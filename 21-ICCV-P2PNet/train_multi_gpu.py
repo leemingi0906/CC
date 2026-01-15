@@ -116,13 +116,13 @@ def main(args):
         train_set.use_npoint = args.use_npoint
         train_set.alpha = args.alpha
 
-    g = torch.Generator()
-    g.manual_seed(args.seed)
+    # g = torch.Generator()
+    # g.manual_seed(args.seed)
 
     data_loader_train = DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
         collate_fn=utils.collate_fn_crowd, num_workers=args.num_workers, 
-        pin_memory=True, worker_init_fn=seed_worker, generator=g
+        pin_memory=True, worker_init_fn=seed_worker
     )
     
     data_loader_val = DataLoader(
