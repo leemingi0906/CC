@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+
+# 
+21-ICCV-P2PNet/logs*
+21-ICCV-P2PNet/runs*
+21-ICCV-P2PNet/vis*
+21-ICCV-P2PNet/weights*
+21-ICCV-P2PNet/ckpt_npoint*
