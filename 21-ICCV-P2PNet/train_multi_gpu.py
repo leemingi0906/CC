@@ -103,7 +103,7 @@ def main(args):
     # gc.collect()
     # torch.cuda.empty_cache()
 
-    suffix = f"npoint_a{str(args.alpha).replace('.', '')}" if args.use_npoint else "baseline"
+    suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.use_npoint else f"baseline_seed{args.seed}"
     os.makedirs("./my_exp", exist_ok=True)
     if not args.output_dir: args.output_dir = f'./my_exp/logs_{suffix}'
     if not args.checkpoints_dir: args.checkpoints_dir = f'./my_exp/ckpt_{suffix}'
