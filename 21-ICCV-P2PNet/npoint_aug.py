@@ -17,7 +17,6 @@ def apply_npoint(points, img_shape, alpha=0.5, k=4, max_shift=20):
         new_points (np.array): 노이즈가 주입된 새로운 좌표 배열
     """
 
-    print('열려라 참깨~~~~~!!! 힝힝힝힝힝...')
     
     # 포인트 개수가 k보다 적으면(밀도 계산 불가) 원본 반환
     if len(points) <= k:

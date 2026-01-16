@@ -49,9 +49,9 @@ def get_args_parser():
     parser.add_argument('--lr_drop', default=3500, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float)
 
-    # NPoint 설정
-    # parser.add_argument('--use_npoint', action='store_true', default=True)
-    parser.add_argument('--alpha', default=0.0, type=float)
+    # NPoint 설정: alpha 값이 0보다 크면 자동으로 활성화되도록 로직을 짰으므로 flag는 보조용입니다.
+    parser.add_argument('--use_npoint', action='store_true', help='NPoint 증강 활성화 (alpha가 0보다 크면 자동 활성화)')
+    parser.add_argument('--alpha', default=0.0, type=float, help='NPoint 노이즈 강도')
 
     # 모델 아키텍처
     parser.add_argument('--backbone', default='vgg16_bn', type=str)
@@ -72,7 +72,6 @@ def get_args_parser():
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--resume', default='', help='가중치 재시작 경로')
     parser.add_argument('--num_workers', default=2, type=int)
-    # [수정] 평가 주기를 기본 5로 설정하여 훈련 효율성을 높임
     parser.add_argument('--eval_freq', default=5, type=int)
 
     return parser
@@ -87,30 +86,24 @@ def main(args):
 
     if torch.cuda.device_count() > 1:
         print(f"✅ Using DataParallel with {torch.cuda.device_count()} GPUs")
-        model = torch.nn.DataParallel(model)  # model.module 로 접근 필요해질 수 있음
+        model = torch.nn.DataParallel(model)
         model_without_ddp = model.module
     else:
         model_without_ddp = model
-
-
-    #if args.gpu_id:
-    #    os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
 
     if not os.path.exists(args.data_root):
         print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
         return
 
-    # gc.collect()
-    # torch.cuda.empty_cache()
-
-    suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.alpha != 0 else f"baseline_seed{args.seed}"
-    os.makedirs(f"./my_exp/exp-{suffix}", exist_ok=True)
-    if not args.output_dir: args.output_dir = f'./my_exp/exp-{suffix}/logs_{suffix}'
-    if not args.checkpoints_dir: args.checkpoints_dir = f'./my_exp/exp-{suffix}/ckpt_{suffix}'
-    if not args.tensorboard_dir: args.tensorboard_dir = f'./my_exp/exp-{suffix}/runs_{suffix}'
+    # 경로 생성 로직: alpha 값에 따라 자동 분류
+    suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.alpha > 0 else f"baseline_seed{args.seed}"
+    exp_path = f"./my_exp/exp-{suffix}"
+    if not args.output_dir: args.output_dir = os.path.join(exp_path, f'logs_{suffix}')
+    if not args.checkpoints_dir: args.checkpoints_dir = os.path.join(exp_path, f'ckpt_{suffix}')
+    if not args.tensorboard_dir: args.tensorboard_dir = os.path.join(exp_path, f'runs_{suffix}')
 
     for d in [args.output_dir, args.checkpoints_dir]:
-        if not os.path.exists(d): os.makedirs(d)
+        if not os.path.exists(d): os.makedirs(d, exist_ok=True)
 
     optimizer = torch.optim.Adam([
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
@@ -119,17 +112,18 @@ def main(args):
     
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
+    # 데이터 로드 (args 전달)
     loading_data = build_dataset(args=args)
-    train_set, val_set = loading_data(args.data_root)
+    train_set, val_set = loading_data(args.data_root, args)
     
-    # if hasattr(train_set, 'use_npoint'):
-        
+    # [핵심 로직] alpha 값이 있으면 플래그가 없어도 자동으로 NPoint를 활성화합니다.
     train_set.alpha = args.alpha
-    train_set.use_npoint = True if args.alpha > 0 else False
-
-
-    # g = torch.Generator()
-    # g.manual_seed(args.seed)
+    if args.alpha > 0:
+        train_set.use_npoint = True
+        npoint_status = f"활성화 (Alpha: {args.alpha})"
+    else:
+        train_set.use_npoint = False
+        npoint_status = "비활성화 (Baseline)"
 
     data_loader_train = DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
@@ -147,50 +141,47 @@ def main(args):
     run_log_name = os.path.join(args.output_dir, 'run_log.txt')
     mae_list = []
     
-    print(f"✨ 학습 시작 (MAE/MSE 평가 주기: {args.eval_freq} 에폭)")
+    print(f"✨ 학습 시작 [NPoint: {npoint_status} | Seed: {args.seed} | Batch: {args.batch_size}]")
     
     for epoch in range(args.epochs):
         try:
+            gc.collect()
+            torch.cuda.empty_cache()
+
             t1 = time.time()
             stat = train_one_epoch(model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
             t2 = time.time()
 
-            # 학습 로그 (Train Loss)
-            log_text = f'[Ep {epoch}] LR: {optimizer.param_groups[0]["lr"]:.7f} | Loss: {stat["loss"]:.4f} | Time: {t2-t1:.1f}s'
+            log_text = f'[Ep {epoch}] LR: {optimizer.param_groups[0]["lr"]:.7f} | Loss: {stat["loss"]:.4f} | {t2-t1:.1f}s'
             print(log_text)
             with open(run_log_name, "a") as f: f.write(log_text + "\n")
             
             writer.add_scalar('loss/total', stat['loss'], epoch)
             lr_scheduler.step()
 
-            # 평가 및 MAE/MSE 출력 (5에폭 주기)
             if epoch % args.eval_freq == 0 and epoch > 0:
                 torch.cuda.synchronize()
-                print(f"🔎 에폭 {epoch} 평가 수행 중...")
                 result = evaluate_crowd_no_overlap(model_without_ddp, data_loader_val, device)
                 
                 mae, mse = result[0], result[1]
                 mae_list.append(mae)
                 best_mae = np.min(mae_list)
                 
-                # 수치 출력 (터미널 및 파일)
-                eval_log = f"--- [Evaluation] Epoch {epoch} | MAE: {mae:.2f} | MSE: {mse:.2f} | Best MAE: {best_mae:.2f}"
+                eval_log = f"--- [Eval] Epoch {epoch} | MAE: {mae:.2f} | MSE: {mse:.2f} | Best MAE: {best_mae:.2f}"
                 print(eval_log)
-                with open(run_log_name, "a") as f:
-                    f.write(eval_log + "\n")
+                with open(run_log_name, "a") as f: f.write(eval_log + "\n")
                 
                 writer.add_scalar('metric/mae', mae, epoch)
                 writer.add_scalar('metric/mse', mse, epoch)
 
-                # 최고 성능 갱신 시 모델 저장
                 if mae <= best_mae:
                     torch.save({'model': model_without_ddp.state_dict(), 'epoch': epoch, 'mae': mae}, 
                                os.path.join(args.checkpoints_dir, 'best_mae.pth'))
-                    print(f"🔥 신기록 달성! 모델 저장 완료.")
+                    print(f"🔥 최고 성능 갱신 완료.")
 
         except RuntimeError as e:
             if 'out of memory' in str(e):
-                print(f"⚠️ 런타임 에러 발생: {e}. 캐시 정리 후 다음 에폭으로 넘어갑니다.")
+                print(f"⚠️ OOM 발생. 에폭 {epoch}을 건너뜁니다.")
                 gc.collect()
                 torch.cuda.empty_cache()
                 continue
