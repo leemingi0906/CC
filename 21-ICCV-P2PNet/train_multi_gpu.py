@@ -123,8 +123,10 @@ def main(args):
     train_set, val_set = loading_data(args.data_root)
     
     # if hasattr(train_set, 'use_npoint'):
-        # train_set.use_npoint = args.use_npoint
+        
     train_set.alpha = args.alpha
+    train_set.use_npoint = True if args.alpha > 0 else False
+
 
     # g = torch.Generator()
     # g.manual_seed(args.seed)
