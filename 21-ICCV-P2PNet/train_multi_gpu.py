@@ -99,7 +99,7 @@ def main(args):
     for d in [args.output_dir, args.checkpoints_dir]:
         if not os.path.exists(d): os.makedirs(d)
 
-    device = torch.device(f'cuda:{args.gpu_id}')
+    device = torch.device(f'cuda')
     model, criterion = build_model(args, training=True)
     model.to(device)
     criterion.to(device)
