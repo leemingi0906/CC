@@ -49,7 +49,7 @@ def get_args_parser():
     parser.add_argument('--lr_drop', default=3500, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float)
 
-    # NPoint 설정: alpha 값이 0보다 크면 자동으로 활성화되도록 로직을 짰으므로 flag는 보조용입니다.
+    # NPoint 설정
     parser.add_argument('--use_npoint', action='store_true', help='NPoint 증강 활성화 (alpha가 0보다 크면 자동 활성화)')
     parser.add_argument('--alpha', default=0.0, type=float, help='NPoint 노이즈 강도')
 
@@ -64,7 +64,7 @@ def get_args_parser():
 
     # 경로 설정
     parser.add_argument('--data_root', default='/home/kimsooyeon/Downloads/SHT', help='데이터셋 경로')
-    parser.add_argument('--dataset_file', default='SHHA')
+    parser.add_argument('--dataset_file', default='SHHA', help='데이터셋 이름 (SHHA 또는 SHHB)')
     parser.add_argument('--output_dir', default='', help='자동 생성')
     parser.add_argument('--checkpoints_dir', default='', help='자동 생성')
     parser.add_argument('--tensorboard_dir', default='', help='자동 생성')
@@ -95,8 +95,10 @@ def main(args):
         print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
         return
 
-    # 경로 생성 로직: alpha 값에 따라 자동 분류
-    suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.alpha > 0 else f"baseline_seed{args.seed}"
+    # [핵심 수정] suffix에 args.dataset_file을 추가하여 폴더 혼선을 방지합니다.
+    aug_suffix = f"a{str(args.alpha).replace('.', '_')}" if args.alpha > 0 else "baseline"
+    suffix = f"{args.dataset_file}_{aug_suffix}_seed{args.seed}"
+    
     exp_path = f"./my_exp/exp-{suffix}"
     if not args.output_dir: args.output_dir = os.path.join(exp_path, f'logs_{suffix}')
     if not args.checkpoints_dir: args.checkpoints_dir = os.path.join(exp_path, f'ckpt_{suffix}')
@@ -116,7 +118,7 @@ def main(args):
     loading_data = build_dataset(args=args)
     train_set, val_set = loading_data(args.data_root, args)
     
-    # [핵심 로직] alpha 값이 있으면 플래그가 없어도 자동으로 NPoint를 활성화합니다.
+    # NPoint 최종 상태 주입
     train_set.alpha = args.alpha
     if args.alpha > 0:
         train_set.use_npoint = True
@@ -141,7 +143,7 @@ def main(args):
     run_log_name = os.path.join(args.output_dir, 'run_log.txt')
     mae_list = []
     
-    print(f"✨ 학습 시작 [NPoint: {npoint_status} | Seed: {args.seed} | Batch: {args.batch_size}]")
+    print(f"✨ 학습 시작 [데이터셋: {args.dataset_file} | NPoint: {npoint_status} | Seed: {args.seed}]")
     
     for epoch in range(args.epochs):
         try:
