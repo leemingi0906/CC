@@ -76,7 +76,7 @@ class SHHA(Dataset):
         # [핵심 수정] 고정값 0.2 대신 초기화 시 받은 self.alpha를 사용합니다.
         if self.train and self.use_npoint:
             w, h = img.size 
-            point = apply_npoint(point, (h, w), alpha=self.alpha, k=4)
+            point = apply_npoint(point, (h, w), alpha=self.alpha, k=6)
 
         if self.transform is not None:
             img = self.transform(img)
