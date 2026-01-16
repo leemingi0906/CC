@@ -74,12 +74,25 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=2, type=int)
     # [수정] 평가 주기를 기본 5로 설정하여 훈련 효율성을 높임
     parser.add_argument('--eval_freq', default=5, type=int)
-    parser.add_argument('--gpu_id', default=0, type=int, help='the gpu used for training')
 
     return parser
 
 def main(args):
     set_seed(args.seed)
+
+    device = torch.device('cuda')
+    model, criterion = build_model(args, training=True)
+    model.to(device)
+    criterion.to(device)
+
+    if torch.cuda.device_count() > 1:
+        print(f"✅ Using DataParallel with {torch.cuda.device_count()} GPUs")
+        model = torch.nn.DataParallel(model)  # model.module 로 접근 필요해질 수 있음
+        model_without_ddp = model.module
+    else:
+        model_without_ddp = model
+
+
     #if args.gpu_id:
     #    os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
 
@@ -99,13 +112,6 @@ def main(args):
     for d in [args.output_dir, args.checkpoints_dir]:
         if not os.path.exists(d): os.makedirs(d)
 
-    device = torch.device(f'cuda')
-    model, criterion = build_model(args, training=True)
-    model.to(device)
-    criterion.to(device)
-
-    model_without_ddp = model
-    
     optimizer = torch.optim.Adam([
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" in n and p.requires_grad], "lr": args.lr_backbone},
