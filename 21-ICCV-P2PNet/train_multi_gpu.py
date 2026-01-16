@@ -12,6 +12,7 @@ from crowd_datasets import build_dataset
 from engine import train_one_epoch, evaluate_crowd_no_overlap
 from models import build_model
 import os
+import sys # 경로 조작을 위해 필수
 from tensorboardX import SummaryWriter
 import warnings
 import numpy as np
@@ -22,7 +23,6 @@ import gc
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 warnings.filterwarnings('ignore')
 
-# 재현성을 위한 시드 고정 함수
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -32,15 +32,13 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-# DataLoader 워커 시드 고정
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 def get_args_parser():
-    parser = argparse.ArgumentParser('P2PNet Training for RTX 3090 Stability', add_help=False)
-    
+    parser = argparse.ArgumentParser('P2PNet Training', add_help=False)
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--lr_backbone', default=1e-5, type=float)
     parser.add_argument('--batch_size', default=2, type=int) 
@@ -48,12 +46,8 @@ def get_args_parser():
     parser.add_argument('--epochs', default=3500, type=int)
     parser.add_argument('--lr_drop', default=3500, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float)
-
-    # NPoint 설정
-    parser.add_argument('--use_npoint', action='store_true', help='NPoint 증강 활성화 (alpha가 0보다 크면 자동 활성화)')
-    parser.add_argument('--alpha', default=0.0, type=float, help='NPoint 노이즈 강도')
-
-    # 모델 아키텍처
+    parser.add_argument('--use_npoint', action='store_true', help='NPoint 활성화')
+    parser.add_argument('--alpha', default=0.0, type=float, help='노이즈 강도')
     parser.add_argument('--backbone', default='vgg16_bn', type=str)
     parser.add_argument('--row', default=2, type=int)
     parser.add_argument('--line', default=2, type=int)
@@ -61,23 +55,26 @@ def get_args_parser():
     parser.add_argument('--set_cost_point', default=0.05, type=float)
     parser.add_argument('--point_loss_coef', default=0.0002, type=float)
     parser.add_argument('--eos_coef', default=0.5, type=float)
-
-    # 경로 설정
     parser.add_argument('--data_root', default='/home/kimsooyeon/Downloads/SHT', help='데이터셋 경로')
-    parser.add_argument('--dataset_file', default='SHHA', help='데이터셋 이름 (SHHA 또는 SHHB)')
+    parser.add_argument('--dataset_file', default='SHHA', help='데이터셋 이름 (SHHA/SHHB)')
     parser.add_argument('--output_dir', default='', help='자동 생성')
     parser.add_argument('--checkpoints_dir', default='', help='자동 생성')
     parser.add_argument('--tensorboard_dir', default='', help='자동 생성')
-
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--resume', default='', help='가중치 재시작 경로')
     parser.add_argument('--num_workers', default=2, type=int)
     parser.add_argument('--eval_freq', default=5, type=int)
-
     return parser
 
 def main(args):
     set_seed(args.seed)
+
+    # ---------------------------------------------------------
+    # [Fallback 로직 1단계] 현재 실행 경로를 최우선으로 등록
+    # ---------------------------------------------------------
+    curr_path = os.getcwd()
+    if curr_path not in sys.path:
+        sys.path.insert(0, curr_path) # 리스트 맨 앞에 추가하여 우선순위 확보
 
     device = torch.device('cuda')
     model, criterion = build_model(args, training=True)
@@ -85,20 +82,19 @@ def main(args):
     criterion.to(device)
 
     if torch.cuda.device_count() > 1:
-        print(f"✅ Using DataParallel with {torch.cuda.device_count()} GPUs")
+        print(f"✅ {torch.cuda.device_count()} GPUs detected. DataParallel 활성화.")
         model = torch.nn.DataParallel(model)
         model_without_ddp = model.module
     else:
         model_without_ddp = model
 
     if not os.path.exists(args.data_root):
-        print(f"❌ 오류: 데이터 경로를 찾을 수 없습니다: {args.data_root}")
+        print(f"❌ 데이터 경로 오류: {args.data_root}")
         return
 
-    # [핵심 수정] suffix에 args.dataset_file을 추가하여 폴더 혼선을 방지합니다.
-    aug_suffix = f"a{str(args.alpha).replace('.', '_')}" if args.alpha > 0 else "baseline"
-    suffix = f"{args.dataset_file}_{aug_suffix}_seed{args.seed}"
-    
+    # 경로 자동 생성
+    aug_tag = f"a{str(args.alpha).replace('.', '_')}" if args.alpha > 0 else "baseline"
+    suffix = f"{args.dataset_file}_{aug_tag}_seed{args.seed}"
     exp_path = f"./my_exp/exp-{suffix}"
     if not args.output_dir: args.output_dir = os.path.join(exp_path, f'logs_{suffix}')
     if not args.checkpoints_dir: args.checkpoints_dir = os.path.join(exp_path, f'ckpt_{suffix}')
@@ -114,18 +110,35 @@ def main(args):
     
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
-    # 데이터 로드 (args 전달)
-    loading_data = build_dataset(args=args)
-    train_set, val_set = loading_data(args.data_root, args)
+    # ---------------------------------------------------------
+    # [Fallback 로직 2단계] 데이터셋 로딩 경로 탐색 순서 최적화
+    # ---------------------------------------------------------
+    print(f"📊 데이터셋 로딩 시도: {args.dataset_file}...")
+    loader_found = False
+    try:
+        # 우선순위 1: 사용자가 직접 정의한 crowd_datasets/loading_data.py를 먼저 시도
+        # SHHB 등 확장된 데이터셋 처리가 포함되어 있음
+        from crowd_datasets.loading_data import loading_data as data_loader_fn
+        train_set, val_set = data_loader_fn(args.data_root, args)
+        loader_found = True
+        print(f"✅ 커스텀 로더(loading_data.py)를 통해 {args.dataset_file}를 로드했습니다.")
+    except (ImportError, TypeError) as e:
+        # 우선순위 2: 실패 시 P2PNet 기본 factory 함수인 build_dataset 사용
+        print(f"⚠️ 커스텀 로더 실패 ({e}). 기본 build_dataset으로 시도합니다.")
+        loading_data_factory = build_dataset(args=args)
+        if loading_data_factory is not None:
+            train_set, val_set = loading_data_factory(args.data_root)
+            loader_found = True
+            print(f"✅ 기본 build_dataset을 통해 로드했습니다.")
+
+    if not loader_found:
+        print("❌ 최종 로딩 실패: 폴더 구조를 확인하세요.")
+        print("가이드: crowd_datasets/ 폴더 안에 loading_data.py가 있어야 합니다.")
+        return
     
-    # NPoint 최종 상태 주입
+    # NPoint 최종 파라미터 주입
     train_set.alpha = args.alpha
-    if args.alpha > 0:
-        train_set.use_npoint = True
-        npoint_status = f"활성화 (Alpha: {args.alpha})"
-    else:
-        train_set.use_npoint = False
-        npoint_status = "비활성화 (Baseline)"
+    train_set.use_npoint = True if args.alpha > 0 else False
 
     data_loader_train = DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
@@ -143,7 +156,7 @@ def main(args):
     run_log_name = os.path.join(args.output_dir, 'run_log.txt')
     mae_list = []
     
-    print(f"✨ 학습 시작 [데이터셋: {args.dataset_file} | NPoint: {npoint_status} | Seed: {args.seed}]")
+    print(f"✨ 학습 시작 [데이터셋: {args.dataset_file} | Alpha: {args.alpha}]")
     
     for epoch in range(args.epochs):
         try:
@@ -164,22 +177,18 @@ def main(args):
             if epoch % args.eval_freq == 0 and epoch > 0:
                 torch.cuda.synchronize()
                 result = evaluate_crowd_no_overlap(model_without_ddp, data_loader_val, device)
-                
-                mae, mse = result[0], result[1]
-                mae_list.append(mae)
+                mae_list.append(result[0])
                 best_mae = np.min(mae_list)
                 
-                eval_log = f"--- [Eval] Epoch {epoch} | MAE: {mae:.2f} | MSE: {mse:.2f} | Best MAE: {best_mae:.2f}"
+                eval_log = f"--- [Eval] Epoch {epoch} | MAE: {result[0]:.2f} | MSE: {result[1]:.2f} | Best MAE: {best_mae:.2f}"
                 print(eval_log)
                 with open(run_log_name, "a") as f: f.write(eval_log + "\n")
                 
-                writer.add_scalar('metric/mae', mae, epoch)
-                writer.add_scalar('metric/mse', mse, epoch)
+                writer.add_scalar('metric/mae', result[0], epoch)
 
-                if mae <= best_mae:
-                    torch.save({'model': model_without_ddp.state_dict(), 'epoch': epoch, 'mae': mae}, 
+                if result[0] <= best_mae:
+                    torch.save({'model': model_without_ddp.state_dict(), 'epoch': epoch, 'mae': result[0]}, 
                                os.path.join(args.checkpoints_dir, 'best_mae.pth'))
-                    print(f"🔥 최고 성능 갱신 완료.")
 
         except RuntimeError as e:
             if 'out of memory' in str(e):
@@ -187,8 +196,7 @@ def main(args):
                 gc.collect()
                 torch.cuda.empty_cache()
                 continue
-            else: 
-                raise e
+            else: raise e
 
     writer.close()
 
