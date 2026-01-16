@@ -50,8 +50,8 @@ def get_args_parser():
     parser.add_argument('--clip_max_norm', default=0.1, type=float)
 
     # NPoint 설정
-    parser.add_argument('--use_npoint', action='store_true', default=True)
-    parser.add_argument('--alpha', default=0.5, type=float)
+    # parser.add_argument('--use_npoint', action='store_true', default=True)
+    parser.add_argument('--alpha', default=0.0, type=float)
 
     # 모델 아키텍처
     parser.add_argument('--backbone', default='vgg16_bn', type=str)
@@ -103,7 +103,7 @@ def main(args):
     # gc.collect()
     # torch.cuda.empty_cache()
 
-    suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.use_npoint else f"baseline_seed{args.seed}"
+    suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.alpha != 0 else f"baseline_seed{args.seed}"
     os.makedirs("./my_exp", exist_ok=True)
     if not args.output_dir: args.output_dir = f'./my_exp/logs_{suffix}'
     if not args.checkpoints_dir: args.checkpoints_dir = f'./my_exp/ckpt_{suffix}'
@@ -122,9 +122,9 @@ def main(args):
     loading_data = build_dataset(args=args)
     train_set, val_set = loading_data(args.data_root)
     
-    if hasattr(train_set, 'use_npoint'):
-        train_set.use_npoint = args.use_npoint
-        train_set.alpha = args.alpha
+    # if hasattr(train_set, 'use_npoint'):
+        # train_set.use_npoint = args.use_npoint
+    train_set.alpha = args.alpha
 
     # g = torch.Generator()
     # g.manual_seed(args.seed)
