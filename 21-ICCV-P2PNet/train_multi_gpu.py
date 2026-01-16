@@ -104,10 +104,10 @@ def main(args):
     # torch.cuda.empty_cache()
 
     suffix = f"npoint_a{str(args.alpha).replace('.', '_')}_seed{args.seed}" if args.alpha != 0 else f"baseline_seed{args.seed}"
-    os.makedirs("./my_exp", exist_ok=True)
-    if not args.output_dir: args.output_dir = f'./my_exp/logs_{suffix}'
-    if not args.checkpoints_dir: args.checkpoints_dir = f'./my_exp/ckpt_{suffix}'
-    if not args.tensorboard_dir: args.tensorboard_dir = f'./my_exp/runs_{suffix}'
+    os.makedirs(f"./my_exp/exp-{suffix}", exist_ok=True)
+    if not args.output_dir: args.output_dir = f'./my_exp/exp-{suffix}/logs_{suffix}'
+    if not args.checkpoints_dir: args.checkpoints_dir = f'./my_exp/exp-{suffix}/ckpt_{suffix}'
+    if not args.tensorboard_dir: args.tensorboard_dir = f'./my_exp/exp-{suffix}/runs_{suffix}'
 
     for d in [args.output_dir, args.checkpoints_dir]:
         if not os.path.exists(d): os.makedirs(d)
