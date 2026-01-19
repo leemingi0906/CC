@@ -16,21 +16,24 @@
   ```
 
 - 훈련
+
   ```shell
   python train_multi_gpu.py \
   --use_npoint \
   --alpha 0.2 \
-  --data_root /home/mingi/Downloads/SHT \
+  --data_root ../SHT \
   --dataset_file SHHA \
   --batch_size 16 \
   --epochs 3500
   ```
+
   #알파값 설정으로 훈련
+
 - 테스트
   ```shell
   python test_p2pnet.py \
   --weight_path ./ckpt_nponint_a05/best_mae.pth \
-  --data_root /home/mingi/Downloads/SHT \
+  --data_root ../SHT \
   --dataset_file SHHA \
   --gpu_id 0
   ```
