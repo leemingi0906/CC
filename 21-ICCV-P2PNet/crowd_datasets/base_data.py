@@ -17,7 +17,7 @@ except ImportError:
 class BaseData(Dataset):
     def __init__(self, data_root, 
                  transform=None, train=False, patch=False, flip=False, 
-                 use_npoint=False, alpha=0.2, adaptive_npoint=False):
+                 use_npoint=False, alpha=0.2, adaptive_npoint=0):
         self.data_root = data_root
         self.train = train
         self.patch = patch
@@ -83,7 +83,8 @@ class BaseData(Dataset):
         if self.patch:
             if self.adaptive_npoint:
                 # child가 adaptive를 쓰고 싶으면 여기 연결
-                img, point = self.random_crop_for_adaptive_npoint(img, point, n_point)
+                img, point = self.random_crop_for_adaptive_npoint(img, point, n_point, 
+                                                                  threshold=self.adaptive_npoint)
             else:
                 img, point = self.random_crop(img, n_point)
         else:
@@ -109,13 +110,6 @@ class BaseData(Dataset):
             d['labels'] = torch.ones([p.shape[0]], dtype=torch.int64)
             target.append(d)
         return target
-
-    # 아래 두 개는 "공용 유틸"로 외부에 두고 import해도 됨.
-    def random_crop(self, img, den, num_patch=4):
-        raise NotImplementedError("random_crop() should be provided (import util or override).")
-
-    def random_crop_for_adaptive_npoint(self, img, den_o, den_npoint, threshold, num_patch=4):
-        raise NotImplementedError("random_crop_for_adaptive_npoint() should be provided (import util or override).")
 
     def random_crop(self, img, den, num_patch=4):
         half_h, half_w = 128, 128

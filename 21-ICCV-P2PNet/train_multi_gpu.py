@@ -47,7 +47,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=3500, type=int)
     parser.add_argument('--lr_drop', default=3500, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float)
-    parser.add_argument('--use_npoint', action='store_true', help='NPoint 활성화')
+    # parser.add_argument('--use_npoint', action='store_true', help='NPoint 활성화')
     parser.add_argument('--alpha', default=0.0, type=float, help='노이즈 강도')
     parser.add_argument('--backbone', default='vgg16_bn', type=str)
     parser.add_argument('--row', default=2, type=int)
@@ -65,7 +65,7 @@ def get_args_parser():
     parser.add_argument('--resume', default='', help='가중치 재시작 경로')
     parser.add_argument('--num_workers', default=2, type=int)
     parser.add_argument('--eval_freq', default=5, type=int)
-    parser.add_argument('--adaptive_npoint', action='store_true', help='적응형 NPoint 활성화', default=False)
+    parser.add_argument('--adaptive_npoint', default=0, type=int, help='적응형 NPoint 활성화')
     return parser
 
 def main(args):
@@ -141,6 +141,7 @@ def main(args):
     # NPoint 최종 파라미터 주입
     train_set.alpha = args.alpha
     train_set.use_npoint = True if args.alpha > 0 else False
+    train_set.adaptive_npoint = args.adaptive_npoint
 
     data_loader_train = DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
