@@ -15,14 +15,14 @@
        -O pretrained/vgg16_bn-6c64b313.pth
   ```
 
-- 훈련
+- 훈련 (alpha>0이면, NPoint 자동 활성화)
 
   ```shell
   python train_multi_gpu.py \
-  --use_npoint \
   --alpha 0.2 \
   --data_root ../SHT \
   --dataset_file SHHA \
+  --adaptive_npoint 10 \
   --batch_size 16 \
   --epochs 3500
   ```
