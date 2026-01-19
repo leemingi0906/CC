@@ -8,7 +8,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from crowd_datasets import build_dataset
+# from crowd_datasets import build_dataset
+from crowd_datasets import *
 from engine import train_one_epoch, evaluate_crowd_no_overlap
 from models import build_model
 import os
@@ -64,6 +65,7 @@ def get_args_parser():
     parser.add_argument('--resume', default='', help='가중치 재시작 경로')
     parser.add_argument('--num_workers', default=2, type=int)
     parser.add_argument('--eval_freq', default=5, type=int)
+    parser.add_argument('--adaptive_npoint', action='store_true', help='적응형 NPoint 활성화', default=False)
     return parser
 
 def main(args):
