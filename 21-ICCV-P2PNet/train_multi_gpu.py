@@ -94,16 +94,32 @@ def main(args):
         print(f"❌ 데이터 경로 오류: {args.data_root}")
         return
 
-    # 경로 자동 생성
-    aug_tag = f"a{str(args.alpha).replace('.', '_')}" if args.alpha > 0 else "baseline"
-    suffix = f"{args.dataset_file}_{aug_tag}_seed{args.seed}"
+    # ---------------------------------------------------------
+    # [수정] 출력 파일 및 폴더명 설정 로직
+    # ---------------------------------------------------------
+    # alpha 0.2 -> a0_2, adaptive_npoint 7 -> ad7 형식으로 태그 생성
+    alpha_tag = f"a{str(args.alpha).replace('.', '_')}"
+    ad_tag = f"ad{args.adaptive_npoint}" if args.adaptive_npoint > 0 else "fixed"
+    
+    # 최종 접미사 (데이터셋_알파_적응형_시드)
+    suffix = f"{args.dataset_file}_{alpha_tag}_{ad_tag}_seed{args.seed}"
     exp_path = f"./my_exp/exp-{suffix}"
+
+    # 경로 자동 할당 (사용자가 인자로 주지 않았을 때만 자동 생성)
     if not args.output_dir: args.output_dir = os.path.join(exp_path, f'logs_{suffix}')
     if not args.checkpoints_dir: args.checkpoints_dir = os.path.join(exp_path, f'ckpt_{suffix}')
     if not args.tensorboard_dir: args.tensorboard_dir = os.path.join(exp_path, f'runs_{suffix}')
 
+    # 폴더 물리적 생성
     for d in [args.output_dir, args.checkpoints_dir]:
-        if not os.path.exists(d): os.makedirs(d, exist_ok=True)
+        if not os.path.exists(d): 
+            os.makedirs(d, exist_ok=True)
+
+    print("\n" + "="*60)
+    print(f"🚀 실험 경로 설정 완료:")
+    print(f"   - 실험 명: {suffix}")
+    print(f"   - 저장 폴더: {exp_path}")
+    print("="*60 + "\n")
 
     optimizer = torch.optim.Adam([
         {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
@@ -118,14 +134,11 @@ def main(args):
     print(f"📊 데이터셋 로딩 시도: {args.dataset_file}...")
     loader_found = False
     try:
-        # 우선순위 1: 사용자가 직접 정의한 crowd_datasets/loading_data.py를 먼저 시도
-        # SHHB 등 확장된 데이터셋 처리가 포함되어 있음
         from crowd_datasets.loading_data import loading_data as data_loader_fn
         train_set, val_set = data_loader_fn(args.data_root, args)
         loader_found = True
         print(f"✅ 커스텀 로더(loading_data.py)를 통해 {args.dataset_file}를 로드했습니다.")
     except (ImportError, TypeError) as e:
-        # 우선순위 2: 실패 시 P2PNet 기본 factory 함수인 build_dataset 사용
         print(f"⚠️ 커스텀 로더 실패 ({e}). 기본 build_dataset으로 시도합니다.")
         loading_data_factory = build_dataset(args=args)
         if loading_data_factory is not None:
@@ -135,7 +148,6 @@ def main(args):
 
     if not loader_found:
         print("❌ 최종 로딩 실패: 폴더 구조를 확인하세요.")
-        print("가이드: crowd_datasets/ 폴더 안에 loading_data.py가 있어야 합니다.")
         return
     
     # NPoint 최종 파라미터 주입
@@ -159,7 +171,7 @@ def main(args):
     run_log_name = os.path.join(args.output_dir, 'run_log.txt')
     mae_list = []
     
-    print(f"✨ 학습 시작 [데이터셋: {args.dataset_file} | Alpha: {args.alpha}]")
+    print(f"✨ 학습 시작 [데이터셋: {args.dataset_file} | Alpha: {args.alpha} | Adaptive: {args.adaptive_npoint}]")
     
     for epoch in range(args.epochs):
         try:
