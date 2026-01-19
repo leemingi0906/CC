@@ -80,11 +80,11 @@ class SHHB(BaseData):
 
     def build_img_map(self):
         if self.train:
-            self.img_lists = glob.glob(f'{self.data_root}/part_P_final/train_data/images/*.jpg')
-            self.gt_lists = glob.glob(f'{self.data_root}/part_P_final/train_data/ground_truth/*.txt')
+            self.img_lists = glob.glob(f'{self.data_root}/part_B_final/train_data/images/*.jpg')
+            self.gt_lists = glob.glob(f'{self.data_root}/part_B_final/train_data/ground_truth/*.txt')
         else:
-            self.img_lists = glob.glob(f'{self.data_root}/part_P_final/test_data/images/*.jpg')
-            self.gt_lists = glob.glob(f'{self.data_root}/part_P_final/test_data/ground_truth/*.txt')
+            self.img_lists = glob.glob(f'{self.data_root}/part_B_final/test_data/images/*.jpg')
+            self.gt_lists = glob.glob(f'{self.data_root}/part_B_final/test_data/ground_truth/*.txt')
         
         gt_dict = {
             os.path.basename(p).replace('GT_', '').replace('.txt', ''): p
