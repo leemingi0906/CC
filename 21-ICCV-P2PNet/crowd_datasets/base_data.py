@@ -39,26 +39,28 @@ class BaseData(Dataset):
         return self.nSamples
 
     def __getitem__(self, index):
-        img_path = self.img_list[index]
-        gt_path = self.img_map[img_path]
-        
-        img, point = self.load_data(img_path, gt_path)
-        
-        if self.train and self.use_npoint:
-            w, h = img.size 
-            n_point = apply_npoint(point, (h, w), alpha=self.alpha, k=6)
+            img_path = self.img_list[index]
+            gt_path = self.img_map[img_path]
+            
+            img, point = self.load_data(img_path, gt_path)
+            n_point = point.copy() 
 
-        if self.transform is not None:
-            img = self.transform(img)
+            if self.train and self.use_npoint:
+                w, h = img.size 
+                # 노이즈를 사용할 때만 n_point를 업데이트
+                n_point = apply_npoint(point, (h, w), alpha=self.alpha, k=6)
 
-        if self.train:
-            img, point = self.apply_train_augmentation(img, point, n_point)
+            if self.transform is not None:
+                img = self.transform(img)
 
-        if not self.train:
-            point = [point]
+            if self.train:
+                img, point = self.apply_train_augmentation(img, point, n_point)
 
-        target = self.build_target(point)
-        return img, target
+            if not self.train:
+                point = [point]
+
+            target = self.build_target(point)
+            return img, target
 
 
     def build_img_map(self):
