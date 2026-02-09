@@ -1,5 +1,30 @@
 # CC
 
+16-CVPR-MCNN
+
+- 훈련 (alpha>0이면, NPoint 자동 활성화)
+
+  ```shell
+  python train.py\
+  --dataset A\
+  --alpha 0.0\
+  --adaptive_npoint 0\
+  --epochs 1000\
+  --batch_size 1\
+  --seed 0
+
+  #알파값 설정으로 훈련
+
+  ```
+
+- 테스트
+  ```shell
+  python test.py\
+  --dataset A\
+  --weight_path ./checkpoints/mcnn_A_a0_0_ad0_s0_best.pth\
+  --data_path ./data/original/shanghaitech
+  ```
+
 21-ICCV-P2PNet
 
 - 초기 설치
