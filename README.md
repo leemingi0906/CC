@@ -25,6 +25,30 @@
   --data_path ./data/original/shanghaitech
   ```
 
+18-CVPR-CSRNet
+
+- 훈련 (alpha>0이면, NPoint 자동 활성화)
+
+  ```shell
+  python train.py \
+  --dataset A \
+  --alpha 0.0 \
+  --data_root ./SHT \
+  --gpu_id 0 \
+  --epochs 500
+  ```
+
+  #알파값 설정으로 훈련
+
+- 테스트
+  ```shell
+  python test_p2pnet.py \
+  --weight_path ./ckpt_nponint_a05/best_mae.pth \
+  --data_root ../SHT \
+  --dataset_file SHHA \
+  --gpu_id 0
+  ```
+
 21-ICCV-P2PNet
 
 - 초기 설치
