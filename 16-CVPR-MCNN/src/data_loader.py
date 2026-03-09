@@ -1,117 +1,290 @@
 import os
+import glob
 import torch
 import numpy as np
+import scipy.io as io
 from torch.utils.data import Dataset
 from PIL import Image
-import cv2
-import glob
-import scipy.io as io
-from scipy.ndimage import gaussian_filter
+import random
 
-# NPoint 모듈 임포트 (npoint_aug.py가 src 폴더에 있어야 함)
+# NPoint 모듈 임포트
 try:
-    from .npoint_aug import apply_npoint
+    from npoint_aug import apply_npoint
 except ImportError:
-    try:
-        from npoint_aug import apply_npoint
-    except ImportError:
-        # 파일이 없을 경우를 대비한 더미 함수
-        def apply_npoint(points, *args, **kwargs): return points
+    # 모듈이 없을 경우를 대비한 더미 함수
+    def apply_npoint(points, img_shape, **kwargs): return points
 
-class MCNN_SHT_Dataset(Dataset):
-    """
-    MCNN 전용 데이터 로더 (클래스명: MCNN_SHT_Dataset)
-    """
-    def __init__(self, data_root, part='B', phase='train', transform=None, 
-                 use_npoint=False, alpha=0.2, adaptive_npoint=7):
+class CrowdDataset(Dataset):
+    def __init__(self, data_root, dataset_name, phase='train', transform=None, downsample_ratio=4, aug_alpha=1.0):
         self.data_root = data_root
-        self.use_npoint = use_npoint
-        self.alpha = alpha
-        self.adaptive_npoint = adaptive_npoint
-        self.transform = transform
+        self.dataset_name = dataset_name.upper()
         self.phase = phase
-        
-        # 상하이텍 표준 경로 설정
-        part_name = f'part_{part}_final'
-        mode_name = f'{phase}_data'
-        
-        # 이미지와 GT 경로 조합
-        self.img_dir = os.path.join(data_root, part_name, mode_name, 'images')
-        self.gt_dir = os.path.join(data_root, part_name, mode_name, 'ground_truth')
-        
-        # 이미지 리스트 확보 (.jpg)
-        self.img_list = sorted(glob.glob(os.path.join(self.img_dir, '*.jpg')))
-        
-        if len(self.img_list) == 0:
-            # 경로가 다를 경우를 대비한 대체 경로 탐색
-            self.img_dir = os.path.join(data_root, mode_name, 'images')
-            self.gt_dir = os.path.join(data_root, mode_name, 'ground_truth')
-            self.img_list = sorted(glob.glob(os.path.join(self.img_dir, '*.jpg')))
+        self.transform = transform
+        self.downsample_ratio = downsample_ratio
+        self.aug_alpha = aug_alpha
+        self.data_files = []
 
-        print(f"📊 [DataLoader] {part}-{phase} : {len(self.img_list)} images loaded.")
+        # 지원하는 모든 확장자 (대소문자 포함)
+        ext_list = ['*.jpg', '*.JPG', '*.jpeg', '*.JPEG', '*.png', '*.PNG']
+
+        target_path = None
+
+        # =========================================================
+        # 1. ShanghaiTech (A / B)
+        # 사용자 지정 구조: data_root/original/shanghaitech/part_A_final/train_data/images
+        # =========================================================
+        if self.dataset_name in ['A', 'B', 'SHA', 'SHB']:
+            if self.dataset_name in ['A', 'SHA']:
+                part_names = ['part_A_final', 'part_A']
+            else:
+                part_names = ['part_B_final', 'part_B']
+            
+            sub_dir = 'train_data' if phase == 'train' else 'test_data'
+            
+            path_candidates = []
+            for pname in part_names:
+                # [최우선] 사용자 지정 경로: data/original/shanghaitech/...
+                path_candidates.append(os.path.join(data_root, 'original', 'shanghaitech', pname, sub_dir, 'images'))
+                path_candidates.append(os.path.join(data_root, 'original', 'ShanghaiTech', pname, sub_dir, 'images'))
+                
+                # 그 외 일반적인 경로 패턴들
+                path_candidates.append(os.path.join(data_root, 'original', pname, sub_dir, 'images'))
+                path_candidates.append(os.path.join(data_root, 'shanghaitech', pname, sub_dir, 'images'))
+                path_candidates.append(os.path.join(data_root, pname, sub_dir, 'images'))
+            
+            # data_root 자체가 해당 폴더인 경우
+            path_candidates.append(os.path.join(data_root, sub_dir, 'images'))
+            path_candidates.append(data_root)
+
+            # 유효한 경로 탐색
+            for opt in path_candidates:
+                if os.path.exists(opt):
+                    found_any = False
+                    for ext in ext_list:
+                        if len(glob.glob(os.path.join(opt, ext))) > 0:
+                            found_any = True
+                            break
+                    if found_any:
+                        target_path = opt
+                        break
+
+        # =========================================================
+        # 2. UCF-QNRF (QNRF)
+        # =========================================================
+        elif self.dataset_name == 'QNRF':
+            sub_dir = 'Train' if phase == 'train' else 'Test'
+            path_options = [
+                os.path.join(data_root, 'original', 'ucf', 'UCF-QNRF', sub_dir),
+                os.path.join(data_root, 'UCF-QNRF', sub_dir),
+                os.path.join(data_root, sub_dir)
+            ]
+            
+            for opt in path_options:
+                if os.path.exists(opt):
+                    target_path = opt
+                    break
+            
+            if target_path is None: target_path = data_root
+
+        # =========================================================
+        # 3. UCF_CC_50 (CC50)
+        # =========================================================
+        elif self.dataset_name == 'CC50':
+            path_options = [
+                os.path.join(data_root, 'original', 'ucf', 'UCF_CC_50'),
+                os.path.join(data_root, 'UCF_CC_50'),
+                data_root
+            ]
+            
+            for opt in path_options:
+                if os.path.exists(opt):
+                    target_path = opt
+                    break
+
+        # =========================================================
+        # 4. JHU++ (JHU)
+        # =========================================================
+        elif self.dataset_name == 'JHU':
+            # expected folder structure: [train, val, test] directories inside data_root
+            sub_dir = phase
+            path_options = [
+                os.path.join(data_root, sub_dir),
+                os.path.join(data_root, 'JHU_Processed', sub_dir)
+            ]
+            
+            for opt in path_options:
+                if os.path.exists(opt):
+                    target_path = opt
+                    break
+
+        # 최종 파일 리스트 수집
+        if target_path and os.path.exists(target_path):
+            for ext in ext_list:
+                self.data_files.extend(glob.glob(os.path.join(target_path, ext)))
+        
+        self.data_files.sort()
+
+        # CC50 전용 셔플 분할 로직
+        if self.dataset_name == 'CC50' and len(self.data_files) > 0:
+            np.random.seed(42)
+            np.random.shuffle(self.data_files)
+            if phase == 'train':
+                self.data_files = self.data_files[:45]
+            else:
+                self.data_files = self.data_files[45:]
+
+        print(f"[{self.dataset_name} | {phase}] Load Success: {len(self.data_files)} images (Path: {target_path})")
 
     def __len__(self):
-        return len(self.img_list)
+        return len(self.data_files)
 
-    def __getitem__(self, index):
-        img_path = self.img_list[index]
-        bname = os.path.basename(img_path)
-        
-        # GT 파일 매핑 (GT_IMG_1.mat 등)
-        gt_path = os.path.join(self.gt_dir, 'GT_' + bname.replace('.jpg', '.mat'))
-        if not os.path.exists(gt_path):
-            gt_path = gt_path.replace('.mat', '.txt')
+    def __getitem__(self, idx):
+        img_path = self.data_files[idx]
+        try:
+            img = Image.open(img_path).convert('RGB')
+        except Exception as e:
+            print(f"Image Load Failed: {img_path} ({e})")
+            return torch.zeros(3, 512, 512), torch.zeros(1, 128, 128)
 
-        # 1. 원본 데이터 로드
-        img_raw = cv2.imread(img_path)
-        img_raw = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
-        h, w, _ = img_raw.shape
-        points = self.load_gt(gt_path)
-        
-        # 2. NPoint 증강 (훈련 시에만)
-        if self.phase == 'train' and self.use_npoint:
-            if len(points) >= self.adaptive_npoint:
-                points = apply_npoint(points, (h, w), alpha=self.alpha, k=6)
+        points = self.load_gt_points(img_path)
+        w, h = img.size
 
-        # 3. Density Map 생성 (MCNN은 1/4 크기 정답 사용)
-        ds_factor = 4
-        # MCNN은 32의 배수 크기 입력 권장
-        target_h, target_w = (h // 32) * 32, (w // 32) * 32
-        img_resized = cv2.resize(img_raw, (target_w, target_h))
+        # Train: Random Crop
+        if self.phase == 'train':
+            crop_size = 512
+            if w > crop_size and h > crop_size:
+                dx = random.randint(0, w - crop_size)
+                dy = random.randint(0, h - crop_size)
+                img = img.crop((dx, dy, dx + crop_size, dy + crop_size))
+                if len(points) > 0:
+                    mask = (points[:, 0] >= dx) & (points[:, 0] < dx + crop_size) & \
+                           (points[:, 1] >= dy) & (points[:, 1] < dy + crop_size)
+                    points = points[mask]
+                    points[:, 0] -= dx
+                    points[:, 1] -= dy
+            else:
+                img = img.resize((crop_size, crop_size), Image.BILINEAR)
+                if len(points) > 0:
+                    points[:, 0] = points[:, 0] * (crop_size / w)
+                    points[:, 1] = points[:, 1] * (crop_size / h)
+        else:
+            # Test: 1024 limit
+            limit_size = 1024 
+            if max(w, h) > limit_size:
+                scale = limit_size / max(w, h)
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = img.resize((new_w, new_h), Image.BILINEAR)
+                if len(points) > 0:
+                    points = points * scale
         
-        gt_map = self.generate_density_map(target_h // ds_factor, target_w // ds_factor, points / ds_factor)
+        # NPoint Augmentation (Always apply based on alpha intensity)
+        if self.phase == 'train' and len(points) > 0 and self.aug_alpha > 0.0:
+            curr_w, curr_h = img.size
+            points = apply_npoint(points, (curr_h, curr_w), alpha=float(self.aug_alpha))
+            points = np.array(points, dtype=np.float32) # Ensure floats are kept until mapped
+
+        k = self.gen_density_map(img.size, points)
         
-        # 4. 최종 변환
-        img_pil = Image.fromarray(img_resized)
         if self.transform:
-            img_tensor = self.transform(img_pil)
-        else:
-            img_tensor = torch.from_numpy(img_resized.transpose(2, 0, 1)).float() / 255.0
-            
-        gt_tensor = torch.from_numpy(gt_map).unsqueeze(0)
+            img = self.transform(img)
+
+        k = torch.from_numpy(k.copy()).float().unsqueeze(0)
+        return img, k
+
+    def load_gt_points(self, img_path):
+        parent_dir = os.path.dirname(img_path)
+        filename = os.path.basename(img_path)
+        name_no_ext = os.path.splitext(filename)[0]
         
-        return img_tensor, gt_tensor
-
-    def load_gt(self, gt_path):
-        if gt_path.endswith('.mat'):
-            try:
-                mat = io.loadmat(gt_path)
-                points = mat['image_info'][0, 0][0, 0][0]
-            except:
-                mat = io.loadmat(gt_path)
-                points = mat['location'] if 'location' in mat else []
+        gt_path_candidates = []
+        
+        # 1. ShanghaiTech 스타일 (images 형제 폴더 ground_truth 탐색)
+        base_folder = os.path.basename(parent_dir)
+        if base_folder.lower() == 'images':
+            gt_dir = os.path.join(os.path.dirname(parent_dir), 'ground_truth')
         else:
-            points = []
-            with open(gt_path, 'r', errors='ignore') as f:
-                for line in f:
-                    line = line.strip().replace(',', ' ').split()
-                    if line: points.append([float(line[0]), float(line[1])])
-        return np.array(points)
+            gt_dir = parent_dir.replace('images', 'ground_truth')
 
-    def generate_density_map(self, h, w, points, sigma=4):
-        d_map = np.zeros((h, w), dtype=np.float32)
-        for p in points:
-            x, y = int(p[0]), int(p[1])
-            if 0 <= x < w and 0 <= y < h:
-                d_map[y, x] = 1.0
-        return gaussian_filter(d_map, sigma=sigma)
+        if os.path.exists(gt_dir):
+            # 우선순위: GT_이름.mat -> GT_이름.txt -> 이름.mat -> 이름.txt
+            gt_path_candidates.append(os.path.join(gt_dir, f"GT_{name_no_ext}.mat"))
+            gt_path_candidates.append(os.path.join(gt_dir, f"GT_{name_no_ext}.txt"))
+            gt_path_candidates.append(os.path.join(gt_dir, f"{name_no_ext}.mat"))
+            gt_path_candidates.append(os.path.join(gt_dir, f"{name_no_ext}.txt"))
+        
+        # 2. 일반 스타일 (이미지와 같은 폴더)
+        gt_path_candidates.append(os.path.join(parent_dir, f"{name_no_ext}_ann.mat"))
+        gt_path_candidates.append(os.path.join(parent_dir, f"{name_no_ext}.mat"))
+        gt_path_candidates.append(os.path.join(parent_dir, f"{name_no_ext}.txt"))
+        
+        # 3. .npy 배열 (JHU 등을 위한 좌표 파일 탐색 최우선 설정)
+        gt_path_candidates.insert(0, os.path.join(parent_dir, f"{name_no_ext}.npy"))
+
+        for gt_path in gt_path_candidates:
+            if os.path.exists(gt_path):
+                if gt_path.endswith('.npy'):
+                    try:
+                        pts = np.load(gt_path)
+                        if len(pts.shape) == 1:
+                            return pts.reshape(-1, 2) if len(pts) > 0 else np.array([])
+                        elif len(pts.shape) >= 2:
+                            return pts[:, :2]
+                    except:
+                        continue
+                elif gt_path.endswith('.mat'):
+                    try:
+                        mat = io.loadmat(gt_path)
+                        if 'image_info' in mat:
+                            return mat['image_info'][0, 0]['location'][0, 0]
+                        elif 'annPoints' in mat:
+                            return mat['annPoints']
+                        else:
+                            keys = [k for k in mat.keys() if not k.startswith('_')]
+                            return mat[keys[0]] if keys else np.array([])
+                    except:
+                        continue
+                elif gt_path.endswith('.txt'):
+                    try:
+                        # txt 파일 로드 (구분자 자동 처리 시도)
+                        try:
+                            pts = np.loadtxt(gt_path, delimiter=',')
+                        except:
+                            pts = np.loadtxt(gt_path) # 공백 구분
+                        
+                        if pts.size == 0: return np.array([])
+                        if pts.ndim == 1: pts = pts.reshape(1, -1)
+                        # 일부 데이터셋은 x,y 외에 다른 정보가 있을 수 있으므로 앞 2개만 사용
+                        return pts[:, :2] 
+                    except:
+                        continue
+
+        return np.array([])
+
+    def gen_density_map(self, img_size, points):
+        w, h = img_size
+        w_down, h_down = w // self.downsample_ratio, h // self.downsample_ratio
+        density_map = np.zeros((h_down, w_down), dtype=np.float32)
+        
+        if len(points) == 0:
+            return density_map
+
+        points_down = points.copy()
+        points_down[:, 0] /= self.downsample_ratio
+        points_down[:, 1] /= self.downsample_ratio
+
+        for x, y in points_down:
+            ix, iy = int(round(x)), int(round(y))
+            if 0 <= ix < w_down and 0 <= iy < h_down:
+                self.add_gaussian(density_map, ix, iy, sigma=4)
+        return density_map
+
+    def add_gaussian(self, density_map, x, y, sigma):
+        k_size = int(sigma * 6)
+        x_min, y_min = max(0, x - k_size // 2), max(0, y - k_size // 2)
+        x_max, y_max = min(density_map.shape[1], x + k_size // 2 + 1), min(density_map.shape[0], y + k_size // 2 + 1)
+        
+        if x_max <= x_min or y_max <= y_min: return
+        xx, yy = np.meshgrid(np.arange(x_min, x_max) - x, np.arange(y_min, y_max) - y)
+        kernel = np.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+        kernel /= (np.sum(kernel) + 1e-9)
+        density_map[y_min:y_max, x_min:x_max] += kernel

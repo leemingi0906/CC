@@ -11,11 +11,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='DM-Count Test & Visualization (Unified Args)')
     parser.add_argument('--device', default='0', help='assign device')
     
-    # [수정] train.py와 동일하게 --model-path 및 --data-root 사용
     parser.add_argument('--model-path', type=str, required=True, help='학습된 모델(.pth 또는 .tar) 경로')
     parser.add_argument('--data-root', type=str, default='./SHT', help='데이터셋 루트 경로 (예: ./SHT)')
     
-    parser.add_argument('--dataset', type=str, default='B', choices=['A', 'B'], help='데이터셋 파트 (A 또는 B)')
+    parser.add_argument('--dataset', type=str, default='shb', choices=['sha', 'shb', 'qnrf', 'cc50', 'jhu'], help='데이터셋 선택')
+    parser.add_argument('--test-fold', type=int, default=0, help='CC50 5-Fold Number 0~4')
     parser.add_argument('--crop-size', type=int, default=512, help='테스트 시 참조할 크롭 사이즈')
     parser.add_argument('--pred-density-map-path', type=str, default='', help='밀도 맵 시각화 결과 저장 경로')
 
@@ -34,27 +34,48 @@ def test():
     os.environ['CUDA_VISIBLE_DEVICES'] = args.device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # 1. 데이터셋 경로 설정 (Unified Logic)
-    # 입력받은 data_root를 기반으로 ShanghaiTech 구조를 탐색합니다.
-    target_path = os.path.join(args.data_root, f'part_{args.dataset}_final', 'test_data')
+    # 1. 데이터셋 경로 설정 (Unified Logic matching train.py)
+    val_file_list = None
+    args.dataset = args.dataset.lower()
     
-    # 만약 위 경로가 없다면, data_root 자체가 test_data일 가능성을 고려하여 대체 경로 탐색
-    if not os.path.exists(target_path):
-        alt_path = os.path.join(args.data_root, 'test_data')
-        if os.path.exists(alt_path):
-            target_path = alt_path
-        else:
-            # 최종적으로 data_root가 직접 이미지를 포함하고 있는지 확인
-            target_path = args.data_root
+    if args.dataset == 'cc50':
+        from glob import glob
+        import random
+        all_images = sorted(glob(os.path.join(args.data_root, '*.jpg')))
+        
+        split_rng = random.Random(42) 
+        indices = list(range(len(all_images)))
+        split_rng.shuffle(indices)
+        
+        fold_size = len(all_images) // 5
+        start_idx = args.test_fold * fold_size
+        end_idx = start_idx + fold_size
+        
+        val_indices = indices[start_idx:end_idx]
+        val_file_list = [all_images[i] for i in val_indices]
+        target_path = args.data_root
+        
+    elif args.dataset == 'qnrf':
+        target_path = os.path.join(args.data_root, 'Test')
+        if not os.path.exists(target_path):
+            target_path = os.path.join(args.data_root, 'test')
+        if not os.path.exists(target_path):
+            target_path = os.path.join(args.data_root, 'UCF-QNRF_ECCV18', 'Test')
+        if not os.path.exists(target_path):
+            target_path = os.path.join(args.data_root, 'UCF-QNRF_ECCV18', 'test')
+    elif args.dataset == 'sha':
+        target_path = os.path.join(args.data_root, 'part_A_final', 'test_data')
+    elif args.dataset == 'shb':
+        target_path = os.path.join(args.data_root, 'part_B_final', 'test_data')
+    elif args.dataset == 'jhu':
+        target_path = os.path.join(args.data_root, 'test')
+    else:
+        target_path = args.data_root
     
     print(f"📂 [DM-Count Test] 데이터 경로: {os.path.abspath(target_path)}")
-    
-    if not os.path.exists(target_path):
-        print(f"❌ 에러: 경로를 찾을 수 없습니다: {target_path}")
-        return
 
     # 데이터 로더 생성
-    dataset = crowd.Crowd(target_path, crop_size=args.crop_size, method='val')
+    dataset = crowd.Crowd(target_path, crop_size=args.crop_size, method='val', dataset_name=args.dataset, file_list=val_file_list)
     
     if len(dataset) == 0:
         print(f"⚠️ 경고: 해당 경로에서 이미지를 찾지 못했습니다. 폴더 구조를 확인하세요.")

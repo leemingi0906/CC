@@ -21,7 +21,8 @@ def get_args():
     parser = argparse.ArgumentParser(description='CSRNet Testing')
     # 1. 경로 설정
     parser.add_argument('--data_root', default='../SHT', help='데이터셋 루트 경로')
-    parser.add_argument('--dataset', default='A', choices=['A', 'B'], help='테스트할 데이터셋 파트')
+    parser.add_argument('--dataset', default='sha', help='테스트할 데이터셋 (sha, shb, qnrf, cc50)')
+    parser.add_argument('--test_fold', default=0, type=int, help='CC50 5-Fold ID')
     parser.add_argument('--weight_path', required=True, help='학습된 .pth 파일 경로')
     
     # 2. 기타 설정
@@ -68,8 +69,16 @@ def test():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
+    dataset_name = args.dataset.lower()
+    if dataset_name == 'sha': dataset_arg, part_arg = 'SHT', 'A'
+    elif dataset_name == 'shb': dataset_arg, part_arg = 'SHT', 'B'
+    elif dataset_name == 'qnrf': dataset_arg, part_arg = 'QNRF', 'A'
+    elif dataset_name == 'cc50': dataset_arg, part_arg = 'CC50', 'A'
+    elif dataset_name == 'jhu': dataset_arg, part_arg = 'JHU', 'A'
+    else: dataset_arg, part_arg = args.dataset.upper(), 'A'
+
     # 테스트 시에는 NPoint를 끕니다.
-    test_set = CSRNet_Dataset(args.data_root, part=args.dataset, phase='test', transform=transform, use_npoint=False)
+    test_set = CSRNet_Dataset(args.data_root, dataset_name=dataset_arg, part=part_arg, phase='test', transform=transform, use_npoint=False, test_fold=args.test_fold)
     test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=2)
 
     mae, mse = 0.0, 0.0

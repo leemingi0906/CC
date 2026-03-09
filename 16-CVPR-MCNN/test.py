@@ -18,7 +18,7 @@ for path in [curr_path, src_path]:
 
 # 프로젝트 내 모듈 임포트
 try:
-    from src.data_loader import MCNN_SHT_Dataset
+    from src.data_loader import CrowdDataset
     from src.models import MCNN
     from src.utils import save_results
 except ImportError as e:
@@ -26,12 +26,13 @@ except ImportError as e:
     sys.exit(1)
 
 def test():
-    parser = argparse.ArgumentParser(description='MCNN Test Script (Final Precision)')
+    parser = argparse.ArgumentParser(description='MCNN Unified Test Script')
     
-    # 1. 경로 설정
-    parser.add_argument('--data_path', default='./data/original/shanghaitech', help='Dataset root path')
-    parser.add_argument('--dataset', default='B', choices=['A', 'B'], help='Dataset Part')
-    parser.add_argument('--weight_path', required=True, help='Path to .pth weight file')
+    # 1. 경로 설정 통일화
+    parser.add_argument('--dataset', required=True, choices=['sha', 'shb', 'qnrf', 'cc50', 'jhu'], help='데이터셋 선택')
+    parser.add_argument('--data_root', required=True, help='데이터셋 루트 경로')
+    parser.add_argument('--model_path', required=True, help='Path to .pth weight file')
+    parser.add_argument('--test_fold', type=int, default=0, help='CC50 전용 5-Fold 번호 (0~4)')
     
     # 2. 출력 및 시각화 설정
     parser.add_argument('--output_dir', default='./output', help='Directory to save results')
@@ -39,6 +40,8 @@ def test():
     parser.add_argument('--gpu_id', default=0, type=int)
     
     args = parser.parse_args()
+    args.dataset = args.dataset.lower()
+    
     device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() else "cpu")
 
     if not os.path.exists(args.output_dir):
@@ -51,24 +54,25 @@ def test():
     ])
 
     # 1. 데이터셋 로드
-    print(f"📊 [Test] Loading ShanghaiTech Part {args.dataset}...")
-    test_set = MCNN_SHT_Dataset(args.data_path, part=args.dataset, phase='test', transform=transform)
+    print(f"📊 [Test] Loading {args.dataset.upper()}...")
+    
+    test_set = CrowdDataset(args.data_root, dataset_name=args.dataset, phase='test', transform=transform)
+    test_set.test_fold = args.test_fold # Inject test_fold for CC50
     test_loader = DataLoader(test_set, batch_size=1, shuffle=False, num_workers=2)
 
     # 2. 모델 로드 및 가중치 매핑
     model = MCNN().to(device)
     
-    if os.path.exists(args.weight_path):
-        # [수정] weights_only=True를 사용하여 보안 경고 해결
-        checkpoint = torch.load(args.weight_path, map_location=device, weights_only=True)
+    if os.path.exists(args.model_path):
+        checkpoint = torch.load(args.model_path, map_location=device, weights_only=True)
         state_dict = checkpoint['model'] if 'model' in checkpoint else checkpoint
         
         # module. 접두사 제거 (DataParallel 대응)
         new_state_dict = {k[7:] if k.startswith('module.') else k: v for k, v in state_dict.items()}
         model.load_state_dict(new_state_dict)
-        print(f"✅ 가중치 로드 성공: {args.weight_path}")
+        print(f"✅ 가중치 로드 성공: {args.model_path}")
     else:
-        print(f"❌ 오류: 가중치 파일을 찾을 수 없습니다: {args.weight_path}")
+        print(f"❌ 오류: 가중치 파일을 찾을 수 없습니다: {args.model_path}")
         return
 
     model.eval()
@@ -102,9 +106,9 @@ def test():
     # 3. 최종 결과 리포트 작성
     result_text = f"""
 ========================================
-🏆 MCNN Test Results (Part {args.dataset})
+🏆 MCNN Test Results ({args.dataset.upper()})
 ========================================
-- Weight File: {os.path.abspath(args.weight_path)}
+- Weight File: {os.path.abspath(args.model_path)}
 - Total Images: {len(test_set)}
 - MAE (Accuracy): {avg_mae:.2f}
 - RMSE (Robustness): {avg_rmse:.2f}
@@ -115,7 +119,7 @@ def test():
     print(result_text)
 
     # 결과 리포트 파일 저장
-    model_name = os.path.basename(args.weight_path).split('.')[0]
+    model_name = os.path.basename(args.model_path).split('.')[0]
     report_name = f'report_{args.dataset}_{model_name}.txt'
     with open(os.path.join(args.output_dir, report_name), 'w') as f:
         f.write(result_text)
