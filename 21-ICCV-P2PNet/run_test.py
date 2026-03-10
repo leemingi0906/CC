@@ -1,100 +1,108 @@
 import argparse
-import datetime
-import random
-import time
-from pathlib import Path
-
+import os
 import torch
 import torchvision.transforms as standard_transforms
 import numpy as np
-
 from PIL import Image
-import cv2
-from crowd_datasets import build_dataset
-from engine import *
-from models import build_model
-import os
 import warnings
 warnings.filterwarnings('ignore')
+
+from crowd_datasets import loading_data
+from models import build_model
+from torch.utils.data import DataLoader
+import util.misc as utils
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set parameters for P2PNet evaluation', add_help=False)
     
-    # * Backbone
-    parser.add_argument('--backbone', default='vgg16_bn', type=str,
-                        help="name of the convolutional backbone to use")
-
-    parser.add_argument('--row', default=2, type=int,
-                        help="row number of anchor points")
-    parser.add_argument('--line', default=2, type=int,
-                        help="line number of anchor points")
-
-    parser.add_argument('--output_dir', default='',
-                        help='path where to save')
-    parser.add_argument('--weight_path', default='',
-                        help='path where the trained weights saved')
-
+    # [1] Unified Dataset Architecture
+    parser.add_argument('--dataset', default='shb', choices=['sha', 'shb', 'qnrf', 'cc50'], help='데이터셋 선택')
+    parser.add_argument('--data_root', default='../SHT', help='데이터셋 루트 경로')
+    parser.add_argument('--model_path', required=True, help='학습된 가중치(.pth)')
+    parser.add_argument('--test_fold', type=int, default=0, help='CC50 5-Fold 번호 (0~4)')
+    
+    # [2] P2PNet Architecture (Must match training params)
+    parser.add_argument('--backbone', default='vgg16_bn', type=str, help="name of the convolutional backbone to use")
+    parser.add_argument('--row', default=2, type=int, help="row number of anchor points")
+    parser.add_argument('--line', default=2, type=int, help="line number of anchor points")
+    
     parser.add_argument('--gpu_id', default=0, type=int, help='the gpu used for evaluation')
 
     return parser
 
-def main(args, debug=False):
-
+def main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu_id)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    print(args)
-    device = torch.device('cuda')
-    # get the P2PNet
+    # 매퍼: unified args -> loading_data.py args
+    args.dataset = args.dataset.lower()
+    if args.dataset == 'sha': args.dataset_file = 'SHHA'
+    elif args.dataset == 'shb': args.dataset_file = 'SHHB'
+    elif args.dataset == 'qnrf': args.dataset_file = 'QNRF'
+    elif args.dataset == 'cc50': args.dataset_file = 'CC50'
+    
+    args.cc50_test_fold = args.test_fold
+    args.use_npoint = False
+    args.alpha = 0.0
+
+    print(f"📊 [Test] Loading {args.dataset.upper()} dataset...")
+    
+    # DataLoader 초기화
+    _, val_set = loading_data(args.data_root, args)
+    
+    if len(val_set) == 0:
+        print("❌ 오류: 해당 경로에서 평가용 이미지를 찾을 수 없습니다.")
+        return
+        
+    val_loader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=2, collate_fn=utils.collate_fn_crowd)
+
+    # 모델 구축 및 로드
     model = build_model(args)
-    # move to GPU
     model.to(device)
-    # load trained model
-    if args.weight_path is not None:
-        checkpoint = torch.load(args.weight_path, map_location='cpu')
-        model.load_state_dict(checkpoint['model'])
-    # convert to eval mode
+    
+    if os.path.exists(args.model_path):
+        checkpoint = torch.load(args.model_path, map_location=device)
+        # P2PNet 저장 포맷 대응 ('model' 딕셔너리 내부)
+        state_dict = checkpoint['model'] if 'model' in checkpoint else checkpoint
+        model.load_state_dict(state_dict)
+        print(f"✅ 가중치 로드 성공: {args.model_path}")
+    else:
+        print(f"❌ 오류: 모델 가중치를 찾을 수 없습니다: {args.model_path}")
+        return
+
     model.eval()
-    # create the pre-processing transform
-    transform = standard_transforms.Compose([
-        standard_transforms.ToTensor(), 
-        standard_transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
 
-    # set your image path here
-    img_path = "./vis/demo1.jpg"
-    # load the images
-    img_raw = Image.open(img_path).convert('RGB')
-    # round the size
-    width, height = img_raw.size
-    new_width = width // 128 * 128
-    new_height = height // 128 * 128
-    img_raw = img_raw.resize((new_width, new_height), Image.ANTIALIAS)
-    # pre-proccessing
-    img = transform(img_raw)
-
-    samples = torch.Tensor(img).unsqueeze(0)
-    samples = samples.to(device)
-    # run inference
-    outputs = model(samples)
-    outputs_scores = torch.nn.functional.softmax(outputs['pred_logits'], -1)[:, :, 1][0]
-
-    outputs_points = outputs['pred_points'][0]
+    mae, mse_sum = 0.0, 0.0
+    print(f"🔎 Starting Inference on {len(val_set)} images...")
 
     threshold = 0.5
-    # filter the predictions
-    points = outputs_points[outputs_scores > threshold].detach().cpu().numpy().tolist()
-    predict_cnt = int((outputs_scores > threshold).sum())
 
-    outputs_scores = torch.nn.functional.softmax(outputs['pred_logits'], -1)[:, :, 1][0]
+    with torch.no_grad():
+        for i, (samples, targets) in enumerate(val_loader):
+            samples = samples.to(device)
+            # targets is a tuple/list of points, or dicts? SHT.py returns (img, {'point': points})
+            gt_cnt = len(targets[0]['point']) if isinstance(targets[0], dict) else len(targets[0])
 
-    outputs_points = outputs['pred_points'][0]
-    # draw the predictions
-    size = 2
-    img_to_draw = cv2.cvtColor(np.array(img_raw), cv2.COLOR_RGB2BGR)
-    for p in points:
-        img_to_draw = cv2.circle(img_to_draw, (int(p[0]), int(p[1])), size, (0, 0, 255), -1)
-    # save the visualized image
-    cv2.imwrite(os.path.join(args.output_dir, 'pred{}.jpg'.format(predict_cnt)), img_to_draw)
+            outputs = model(samples)
+            # P2PNet Logic: Softmax 적용 후 threshold 이상의 anchor만 유효 객체로 판정
+            outputs_scores = torch.nn.functional.softmax(outputs['pred_logits'], -1)[:, :, 1][0]
+            pred_cnt = int((outputs_scores > threshold).sum())
+
+            mae += abs(pred_cnt - gt_cnt)
+            mse_sum += (pred_cnt - gt_cnt)**2
+
+            # 터미널 출력 (모든 이미지)
+            print(f"[{i+1}/{len(val_set)}] GT: {gt_cnt} | Pred: {pred_cnt} | Err: {pred_cnt - gt_cnt}")
+
+    avg_mae = mae / len(val_set)
+    avg_rmse = np.sqrt(mse_sum / len(val_set))
+
+    # 결과 출력
+    print("\n" + "="*50)
+    print(f"🏆 P2PNet Test Results ({args.dataset.upper()})")
+    print(f"📊 MAE: {avg_mae:.2f}")
+    print(f"📊 MSE: {avg_rmse:.2f}")
+    print("="*50)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('P2PNet evaluation script', parents=[get_args_parser()])

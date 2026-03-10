@@ -31,12 +31,20 @@
 
   ```shell
   python train.py \
-  --dataset A \
+  --dataset_name SHT \
+  --part A
   --alpha 0.0 \
   --data_root ./SHT \
   --gpu_id 0 \
-  --epochs 500
+  --epochs 1000
   ```
+  ```shell
+    python train.py \
+  --dataset_name QNRF \
+  --alpha 1\
+  --data_root ./SHT \
+  --gpu_id 0 \
+  --epochs 1000
 
   #알파값 설정으로 훈련
 
@@ -50,18 +58,35 @@
   --gpu_id 0
   ```
 
-  21-NeurIPS-DMcount
+  20-NeurIPS-DMcount
 
-- 훈련 (alpha>0이면, NPoint 자동 활성화)
+- 훈련 (alpha>0이면, NPoint 자동 활성화)#python preprocess_dataset_qnrf.py(전처리 필요)
 
   ```shell
   python train.py \
-  --dataset B \
+  --dataset shb \
   --alpha 0.0 \
   --data_root ./SHT \
   --gpu_id 0 \
-  --epochs 500
-  ```gi
+  --epochs 1000
+  ```
+  
+  
+  ```shell
+  python train.py\
+  --dataset cc50\
+  --data_root ./UCF/UCF_CC_50\
+  --test_fold 0\
+  --alpha 1.0\
+  --epochs 1000
+  ```
+
+  ```shell
+  python train.py --dataset qnrf \
+  --data_root ./UCF-QNRF_Processed \
+  --alpha 1.0 \
+  --gpu_id 0
+  ```
 
   #알파값 설정으로 훈련
 
@@ -69,7 +94,7 @@
   ```shell
   python test.py \
   --dataset B \
-  --data_root ./SHT \
+  --data-root ./SHT \
   --model-path ./checkpoints/DM_B_a0_0/best_model.pth\
   ```
 

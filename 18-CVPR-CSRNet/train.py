@@ -39,6 +39,9 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    
+    # [CUBLAS BUG FIX] Force bypass of CuDNN to prevent CUBLAS_STATUS_EXECUTION_FAILED on fragmented/shared GPUs
+    torch.backends.cudnn.enabled = False
 
 def get_args():
     parser = argparse.ArgumentParser(description='CSRNet Unified Training')
