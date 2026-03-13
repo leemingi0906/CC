@@ -99,7 +99,13 @@ class Crowd(data.Dataset):
         elif self.dataset_name == 'JHU':
             mode_name = method
             opt1 = os.path.join(self.root_path, mode_name)
-            target_dir = opt1 if os.path.exists(opt1) else os.path.join(self.root_path, 'JHU_Processed', mode_name)
+            
+            # If the user already passed the exact folder (e.g. ../JHU_Processed/test)
+            if self.root_path.endswith(mode_name) and os.path.exists(self.root_path):
+                target_dir = self.root_path
+            else:
+                target_dir = opt1 if os.path.exists(opt1) else os.path.join(self.root_path, 'JHU_Processed', mode_name)
+                
             self.im_list = sorted(glob(os.path.join(target_dir, '*.jpg')))
 
         print(f"📊 [Bayesian] ({method}) {self.dataset_name} Loaded: {len(self.im_list)} images")

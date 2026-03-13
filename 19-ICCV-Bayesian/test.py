@@ -64,6 +64,9 @@ if __name__ == '__main__':
 
     print(f"📂 [Bayesian Test] Target: {args.dataset.upper()} | Root Path: {os.path.abspath(test_path)}")
 
+    # Override data_root so the dataset class uses the exact test directory we just resolved
+    args.data_root = test_path
+    
     # Bay_Loss의 Crowd 클래스는 최근 우리가 args 객체를 단일 파라미터로 받도록 개선했음
     if args.dataset == 'cc50':
         dataset = Crowd(args, method='test')
