@@ -2,6 +2,8 @@ from utils.regression_trainer_cosine import RegTrainer
 import argparse
 import os
 import torch
+import random
+import numpy as np
 args = None
 
 def parse_args():
@@ -50,13 +52,25 @@ def parse_args():
                         help='background ratio')
     parser.add_argument('--alpha', type=float, default=0.0,
                         help='NPoint augmentation scale alpha (0 for disabled)')
+    parser.add_argument('--seed', type=int, default=-1,
+                        help='Random seed to use for reproducible training (negative for random)')
     args = parser.parse_args()
     return args
 
 
 if __name__ == '__main__':
     args = parse_args()
-    torch.backends.cudnn.benchmark = True
+    
+    if args.seed >= 0:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    else:
+        torch.backends.cudnn.benchmark = True
+        
     # os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device).strip()  # set vis gpu
     trainer = RegTrainer(args)
     trainer.setup()
