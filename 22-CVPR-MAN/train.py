@@ -71,7 +71,7 @@ if __name__ == '__main__':
     else:
         torch.backends.cudnn.benchmark = True
         
-    # os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device).strip()  # set vis gpu
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device).strip()  # set vis gpu
     trainer = RegTrainer(args)
     trainer.setup()
     trainer.train()
